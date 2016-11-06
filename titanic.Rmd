@@ -1,0 +1,194 @@
+---
+title: 'Titanic: Kaggle'
+author: "Sandra Ezidiegwu"
+date: "August 26, 2016"
+output: html_document
+---
+# Introduction
+This is my first attempt at a kaggle dataset. Decided to give it a try to test my data exploratory abilities. Feel free to share comments too... Enjoy!
+
+### Import useful libraries
+```{r message=FALSE, warning=FALSE}
+library(rpart) #classification algorithm
+library(rpart.plot) #visualization
+library(ggplot2) #visualization
+library(dplyr) #data manipulation
+setwd("/Users/sandraezidiegwu/Documents/Data Science/Titanic/")
+```
+
+## Data Collection and Gathering
+```{r}
+genderclass <- read.csv("genderclassmodel.csv", header = T, sep = ",")
+gender <- read.csv("gendermodel.csv", header = T, sep = ",")
+test <- read.csv("test.csv", header = T, sep = ",")
+train <- read.csv("train.csv", header = T, sep = ",")
+```
+
+## Date Exploration
+```{r}
+names(test)
+names(train)
+test$Survived <- 0
+all.pass <- rbind(train, test)
+str(all.pass)
+summary(all.pass)
+```
+
+VARIABLE NAME | DESCRIPTIONS
+--------------|--------------
+Survived      |(0 = No; 1 = Yes)
+Pclass        |Passenger Class (1 = 1st; 2 = 2nd; 3 = 3rd)
+Name          |Passenger Name
+Sex           |Passenger's Sex
+Age           |Passenger's Age
+SibSp         |Number of Siblings/Spouses Aboard
+Parch         |Number of Parents/Children Aboard
+Ticket        |Ticket Number
+Fare          |Passenger Fare
+Cabin         |Cabin
+Embarked      |Port of Embarkation (C = Cherbourg; Q = Queenstown; S = Southampton)
+
+Let's dig deeper into columns that might affect survival rate. Eg. Title, Family Size, Age etc.
+```{r}
+all.pass$Title <- gsub('(.*, )|(\\..*)', '', all.pass$Name)
+table(all.pass$Sex, all.pass$Title)
+
+all.pass$Title[all.pass$Title %in% c('Mlle', 'Ms', 'Lady')] <- 'Miss'
+all.pass$Title[all.pass$Title %in% c('Dona', 'the Countess', 'Capt', 'Col', 'Don','Jonkheer', 'Major')] <- 'Affluent'
+all.pass$Title[all.pass$Title %in% c('Dr', 'Master', 'Rev', 'Sir')] <- 'Mr'
+all.pass$Title[all.pass$Title %in% 'Mme'] <- 'Mrs'
+table(all.pass$Sex, all.pass$Title)
+
+ggplot(all.pass, aes(x = Title, fill = factor(Survived))) +
+geom_bar(stat = 'count', position = 'dodge') 
+```
+
+Create Family Size column
+```{r}
+all.pass$FSize <- all.pass$SibSp + all.pass$Parch + 1
+```
+
+Aggregate by family name
+```{r}
+all.pass$FName <- paste(all.pass$Surname, all.pass$FSize, sep = '_')
+```
+
+Vizualize the relationship between family size and survival
+```{r}
+ggplot(all.pass, aes(x = FSize, fill = factor(Survived))) + 
+  geom_bar(stat = 'count', position = 'dodge') +
+  scale_x_continuous(breaks = c(1:11)) +
+  labs(x = 'Family Size') +
+  theme_linedraw()
+```
+
+The barplot shows that the larger the family size, the lower the chances of survival. I'm also assuming that affluent families had a lower family size count. Lets check that... 
+```{r}
+ggplot(all.pass, aes(x = FSize, fill = factor(Title))) + 
+  geom_bar(stat = 'count', position = 'dodge') +
+  scale_x_continuous(breaks = c(1:11)) +
+  labs(x = 'Family Size') +
+  theme_linedraw()
+```
+
+I was right! The largest family size for affluent families is 3 so they had a good chance of survival. Let's vsualize this further...
+
+```{r}
+par(mfrow = c(1,1))
+mosaicplot(table(all.pass$Title, all.pass$Survived), main = 'Survival by Title', shade = TRUE)
+```
+You can see that the 'affluent' folks pretty much survived.. Not sure about the Capt. though, according to the movie, he sank with the ship.. But hey! What do I know...
+
+## Missing Values
+```{r}
+sum(is.na(all.pass$Fare))
+na.fare <- all.pass[is.na(all.pass$Fare),]
+na.fare
+```
+
+PassengerId 1044 has an NA Fare value. He/She ranks in 3rd class and embarked form 'S' however.We will replace row 153 fare value with the median fare value of that class and embarkment.
+```{r}
+all.pass$Fare[153] <- median(all.pass[all.pass$Pclass == '3' & all.pass$Embarked == 'S',]$Fare, na.rm = T)
+
+par(mfrow = c(1,1))
+hist(all.pass$Age, main = 'Age Distribution aboard the Titanic', xlab = "Age", col = 'lightblue')
+sum(is.na(all.pass$Age))
+
+actual <- all.pass
+actual2 <- all.pass
+age.part <- rpart(Age ~ Pclass+Sex+SibSp+Parch+Ticket+Fare+Cabin+FSize+Title, data = all.pass[!is.na(all.pass$Age),], method = 'anova')
+age.pred <- predict(age.part, all.pass[is.na(all.pass$Age),])
+actual$Age[is.na(actual$Age)] <- age.pred
+```
+
+For accuracy, let's prune some variables to achieve a better prediction
+```{r}
+age.prune <- prune.rpart(age.part, cp = 0.1)
+age.pred2 <- predict(age.prune, all.pass[is.na(all.pass$Age),])
+actual2$Age[is.na(actual2$Age)] <- age.pred2
+
+mean(actual2$Age != actual$Age)
+```
+There's a 20% improvement on error with pruned prediction
+
+Visualize age distributions of the actual data and the predicted values
+```{r}
+par(mfrow = c(1,3))
+hist(all.pass$Age, col = 'blue', main = 'Actual Age Values', xlab = 'Age')
+hist(actual$Age, col = 'lightblue', main = 'Predicted Age Values', xlab = 'Age')
+hist(actual2$Age, col = 'lightblue', main = 'Pruned Predicted Age Values', xlab = 'Age')
+```
+
+Pruned prediction data is more accurate so let's go ahead and replace the missing age values with the pruned prediction age values and check for na's
+```{r}
+all.pass$Age[is.na(all.pass$Age)] <- age.pred2
+sum(is.na(all.pass$Age))
+all.pass$AgeDist[all.pass$Age < 18] <- "Child"
+all.pass$AgeDist[all.pass$Age >= 18] <- "Adult"
+all.pass$AgeDist <- factor(all.pass$AgeDist)
+```
+
+Let's evaluate survival count by age
+```{r}
+table(all.pass$AgeDist, all.pass$Survived)
+```
+
+## Prediction
+Let's move on to predict the survival. We start by creating test and training data sets
+```{r}
+test_data <- all.pass[892:1309,]
+train_data <- all.pass[1:891,]
+test_data$Survived <- NULL
+```
+
+We are ready to build our model using random Forest!
+```{r}
+model_part <- rpart(Survived ~ Pclass + Sex + Age + SibSp +
+                             Parch + Fare + Title + FSize + AgeDist, data = train_data, method = 'class', control = rpart.control(cp=0.0001))
+```
+
+Visualize decision tree
+```{r}
+par(mfrow=c(1,1))
+rpart.plot(model_part)
+```
+
+Let's predict the test data set and view our solution
+```{r}
+model_pred <- predict(model_part, test_data, type = 'class')
+
+solution <- data.frame(PassengerID = test_data$PassengerId, Survived = model_pred)
+solution[1:10,]
+```
+
+## Solution 
+Write solution to csv file
+```{r}
+write.csv(solution, file = 'rpart-solution.csv', row.names = F)
+```
+
+View Solution
+```{r}
+final_solution <- read.csv('rpart-solution.csv', sep = ',', header = TRUE)
+final_solution[1:10,]
+```

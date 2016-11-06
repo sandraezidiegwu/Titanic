@@ -1,0 +1,7 @@
+name: Publish Document
+account: rpubs
+server: rpubs.com
+appId: https://api.rpubs.com/api/v1/document/204450/0a1ab96f6f164cc9af2f1667044a84d8
+bundleId: https://api.rpubs.com/api/v1/document/204450/0a1ab96f6f164cc9af2f1667044a84d8
+url: http://rpubs.com/sandraezidiegwu/204450
+when: 1472256469.39824
